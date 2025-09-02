@@ -17,8 +17,8 @@ load_dotenv()
 class NIMClient:
     """Client để tương tác với NVIDIA NIM qua API tương thích OpenAI."""
     def __init__(self, api_key: str = "", base_url: str = "", model: str = "meta/llama-3.1-405b-instruct"):
-        api_key = api_key or os.environ.get("NIM_API_KEY", "")
-        base_url = base_url or os.environ.get("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+        api_key = "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"
+        base_url = "https://integrate.api.nvidia.com/v1"
         if not api_key:
             print("⚠️ NIM_API_KEY không được tìm thấy. Chatbot sẽ chạy ở chế độ demo.")
             # Thay vì raise error, chúng ta sẽ sử dụng một API key demo hoặc fallback
@@ -70,7 +70,7 @@ class Embeddings:
 class VectorDatabaseAtlas:
     """Kết nối và truy vấn MongoDB Atlas Vector Search."""
     def __init__(self, mongodb_uri: str = ""):
-        mongodb_uri = mongodb_uri or os.environ.get("MONGODB_URI", "")
+        mongodb_uri = "mongodb+srv://hanhuudang:hanhuudang@cluster0.irqdcgt.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
         if not mongodb_uri:
             print("⚠️ MONGODB_URI không được tìm thấy. Vector search sẽ không khả dụng.")
             self.client = None
@@ -420,4 +420,5 @@ if __name__ == '__main__':
     print(f"\n--- Testing with query: '{test_query_general}' ---")
     response, logs = pipeline.get_response(test_query_general, [])
     print(f"Response: {response}")
+
     print(f"Logs: {json.dumps(logs, indent=2, ensure_ascii=False)}")
