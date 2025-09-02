@@ -122,23 +122,38 @@ class LLMReranker:
     def __init__(self, nim_client: NIMClient):
         self.nim = nim_client
 
-    def rerank(self, query: str, results: List[Dict[str, Any]], top_k: int = 7) -> Tuple[List[Dict[str, Any]], List[int]]:
-        """Re-rank và chọn ra top_k tài liệu liên quan nhất."""
+    def rerank(self, query: str, results: List[Dict[str, Any]], top_k: int = 7, chat_history: List[Dict[str, str]] = None) -> Tuple[List[Dict[str, Any]], List[int]]:
+        """Re-rank và chọn ra top_k tài liệu liên quan nhất, có xét đến lịch sử hội thoại."""
         if not results:
             return [], []
 
         doc_ids = [int(str(r.get("title", "Document 0")).split()[-1]) for r in results]
         docs_text = "".join(f"[Document {doc_id}]\n{result.get('information', '')}\n\n" for doc_id, result in zip(doc_ids, results))
 
+        # Xây dựng ngữ cảnh từ lịch sử chat
+        context_str = ""
+        if chat_history:
+            context_str = "NGỮ CẢNH HỘI THOẠI:\n"
+            for i, turn in enumerate(chat_history[-2:]):  # Lấy 2 lượt gần nhất
+                context_str += f"Người dùng: {turn['user']}\nTrợ lý: {turn['assistant']}\n"
+            context_str += "---\n"
+            print(f"🔄 [RERANKER] Chat context được tạo:")
+            print(f"{context_str}")
+        else:
+            print(f"🔄 [RERANKER] Không có chat history")
+
         rerank_prompt = f"""Bạn là một chuyên gia Re-ranker AI. Nhiệm vụ của bạn là sắp xếp lại và chọn ra `{top_k}` tài liệu liên quan nhất từ danh sách cho trước để trả lời câu hỏi.
-CÂU HỎI: {query}
+
+{context_str}CÂU HỎI HIỆN TẠI: {query}
+
 DANH SÁCH TÀI LIỆU:
 {docs_text}
 ---
 YÊU CẦU:
-1. Phân tích câu hỏi và đánh giá từng tài liệu.
-2. Sắp xếp các tài liệu theo mức độ liên quan giảm dần và chọn ra {top_k} tài liệu tốt nhất.
-3. Trả về CHỈ một JSON object chứa danh sách các ID tài liệu đã được sắp xếp lại.
+1. Phân tích câu hỏi hiện tại. CHỈ sử dụng ngữ cảnh hội thoại nếu câu hỏi hiện tại có liên quan trực tiếp hoặc là câu hỏi nối tiếp.
+2. Đánh giá từng tài liệu dựa trên mức độ phù hợp của nó để trả lời câu hỏi hiện tại.
+3. Sắp xếp các tài liệu theo mức độ liên quan giảm dần và chọn ra {top_k} tài liệu tốt nhất, liên quan, có thể giúp trả lời câu hỏi.
+4. Trả về CHỈ một JSON object chứa danh sách các ID tài liệu đã được sắp xếp lại.
 FORMAT OUTPUT (TUÂN THỦ NGHIÊM NGẶT):
 {{"selected_indices": [15, 3, 27, 8, 12, 1, 5]}}
 """
@@ -147,8 +162,19 @@ FORMAT OUTPUT (TUÂN THỦ NGHIÊM NGẶT):
             {"role": "user", "content": rerank_prompt}
         ]
 
+        print(f"\n{'='*60}")
+        print(f"🔄 [RERANKER] PROMPT GỬI ĐẾN LLM:")
+        print(f"{'='*60}")
+        print(f"System: {messages[0]['content']}")
+        print(f"\nUser: {messages[1]['content']}")
+        print(f"{'='*60}\n")
+
         try:
             response = self.nim.chat(messages, temperature=0.0, max_tokens=200)
+            print(f"🔄 [RERANKER] RESPONSE TỪ LLM:")
+            print(f"Raw response: {response}")
+            print(f"{'='*60}\n")
+            
             json_start = response.find('{')
             json_end = response.rfind('}') + 1
             if json_start != -1 and json_end != -1:
@@ -184,27 +210,46 @@ FORMAT OUTPUT (TUÂN THỦ NGHIÊM NGẶT):
 
 # --- 5. QUERY CLASSIFIER ---
 class QueryClassifier:
-    """Phân loại câu hỏi để quyết định có sử dụng RAG hay không."""
+    """Phân loại câu hỏi để quyết định có sử dụng RAG hay không, có xét đến lịch sử hội thoại."""
     def __init__(self, nim_client: NIMClient):
         self.nim = nim_client
         self.proptit_keywords = [
             "proptit", "clb", "câu lạc bộ", "lập trình ptit", "ptit",
             "tuyển thành viên", "ctv", "cộng tác viên", "thành viên",
             "team", "ban", "dự án", "đào tạo", "training", "phỏng vấn",
-            "sự kiện", "event", "workshop", "cuộc thi"
+            "sự kiện", "event", "workshop", "cuộc thi", "PROGAP"
         ]
 
-    def is_proptit_related(self, query: str) -> bool:
-        """Kiểm tra nhanh bằng từ khóa."""
+    def is_proptit_related(self, query: str, chat_history: List[Dict[str, str]] = None) -> bool:
+        """
+        Kiểm tra xem câu hỏi có liên quan đến PROPTIT không, sử dụng từ khóa và LLM với ngữ cảnh.
+        """
         query_lower = query.lower()
         if any(keyword in query_lower for keyword in self.proptit_keywords):
+            print(f"🔍 [QueryClassifier] Keyword match found for: '{query}'")
             return True
         
-        # Nếu không có từ khóa, dùng LLM để chắc chắn
-        prompt = f"""Bạn là một bộ phân loại văn bản. Nhiệm vụ của bạn là xác định xem câu hỏi của người dùng có liên quan đến "Câu lạc bộ Lập trình PTIT (ProPTIT)" hay không.
-Chỉ trả lời "yes" hoặc "no".
-Câu hỏi: "{query}"
-Câu hỏi này có liên quan đến CLB Lập trình PTIT không?
+        # Debug: In ra lịch sử chat
+        print(f"🔍 [QueryClassifier] No keyword match for: '{query}', checking with LLM...")
+        print(f"🔍 [QueryClassifier] Chat history length: {len(chat_history) if chat_history else 0}")
+        
+        # Nếu không có từ khóa, dùng LLM để chắc chắn, có kèm lịch sử chat
+        history_str = ""
+        if chat_history:
+            for i, turn in enumerate(chat_history[-3:]):  # Lấy 3 lượt hội thoại gần nhất
+                history_str += f"Người dùng: {turn['user']}\nTrợ lý: {turn['assistant']}\n"
+                print(f"🔍 [QueryClassifier] History {i+1}: User='{turn['user'][:50]}...', Assistant='{turn['assistant'][:50]}...'")
+
+        prompt = f"""Bạn là một bộ phân loại văn bản. Nhiệm vụ của bạn là xác định xem CÂU HỎI CUỐI CÙNG của người dùng có liên quan đến "Câu lạc bộ Lập trình PTIT (ProPTIT)" hay không.
+
+---
+LỊCH SỬ HỘI THOẠI (chỉ tham khảo nếu câu hỏi cuối cùng có liên quan):
+{history_str if history_str else "Không có"}
+---
+CÂU HỎI CUỐI CÙNG: "{query}"
+---
+
+Dựa vào câu hỏi cuối cùng (và lịch sử hội thoại nếu cần thiết), câu hỏi này có liên quan đến CLB Lập trình PTIT không? Chỉ trả lời "yes" hoặc "no".
 """
         messages = [
             {"role": "system", "content": "Bạn là một bộ phân loại văn bản. Chỉ trả lời 'yes' hoặc 'no'."},
@@ -212,9 +257,12 @@ Câu hỏi này có liên quan đến CLB Lập trình PTIT không?
         ]
         try:
             response = self.nim.chat(messages, temperature=0.0, max_tokens=5).lower()
-            return "yes" in response
+            print(f"🔍 [QueryClassifier] LLM response: '{response}'")
+            result = "yes" in response
+            print(f"🔍 [QueryClassifier] Final decision: {result}")
+            return result
         except Exception as e:
-            print(f"⚠️ Query classification failed: {e}. Defaulting to RAG.")
+            print(f"⚠️ Query classification with context failed: {e}. Defaulting to RAG.")
             return True # Mặc định dùng RAG nếu có lỗi
 
 # --- 6. RAG PIPELINE ---
@@ -228,19 +276,27 @@ class RAGPipeline:
         self.classifier = QueryClassifier(self.nim_client)
         self.rag_prompt_template = """Bạn là một trợ lý AI chuyên cung cấp thông tin về Câu lạc bộ Lập trình ProPTIT.
 Bạn sẽ nhận được dữ liệu ngữ cảnh (context) từ một hệ thống Retrieval-Augmented Generation (RAG) chứa các thông tin chính xác về CLB.
+
 NGUYÊN TẮC TRẢ LỜI BẮT BUỘC:
 1. CHỈ sử dụng thông tin từ context được cung cấp để trả lời. KHÔNG được thêm thông tin ngoài context.
 2. Trả lời CHÍNH XÁC, và TRỰC TIẾP vào câu hỏi.
 3. KHÔNG được thêm lời chào hỏi, cảm ơn, hoặc câu xã giao không cần thiết.
-4. KHÔNG được nói "Xin lỗi", "Tôi không biết", "Không có thông tin" - PHẢI trả lời dựa trên context có sẵn.
-5. Nếu context không đủ, hãy suy luận LOGIC từ thông tin có sẵn mà KHÔNG bịa thêm.
-6. Tập trung trả lời CÂU HỎI CHÍNH, bỏ qua thông tin không liên quan.
-7. Sử dụng ngôn ngữ tự nhiên, dễ hiểu, phù hợp với phong cách trả lời của con người.
-8. Ưu tiên xưng là "CLB" khi nói về tổ chức.
-9. Không được thêm câu dẫn như "Dựa trên thông tin từ ngữ cảnh, dưới đây là...", trả lời trực tiếp vào câu hỏi
+4. Nếu context không đủ, hãy suy luận LOGIC từ thông tin có sẵn mà KHÔNG bịa thêm.
+5. Tập trung trả lời CÂU HỎI CHÍNH, bỏ qua thông tin không liên quan.
+6. Sử dụng ngôn ngữ tự nhiên, dễ hiểu, phù hợp với phong cách trả lời của con người.
+7. Ưu tiên xưng là "CLB" khi nói về tổ chức.
+8. Không được thêm câu dẫn như "Dựa trên thông tin từ ngữ cảnh, dưới đây là...", trả lời trực tiếp vào câu hỏi.
+9. QUAN TRỌNG: CHỈ xem xét lịch sử hội thoại nếu câu hỏi hiện tại có liên quan trực tiếp hoặc là câu hỏi nối tiếp của cuộc trò chuyện. Nếu không, hãy bỏ qua lịch sử chat.
+
+---
+Context:
 {context}
-Dựa vào thông tin trên, hãy trả lời câu hỏi sau:
-Câu hỏi: {query}
+---
+Lịch sử chat (chỉ sử dụng nếu câu hỏi hiện tại có liên quan):
+{chat_context}
+---
+Dựa vào context và câu hỏi hiện tại (sử dụng lịch sử chat nếu thực sự cần thiết để làm rõ ngữ cảnh), hãy trả lời chi tiết, đầy đủ câu hỏi sau:
+Câu hỏi hiện tại: {query}
 """
 
     def get_response(self, query: str, chat_history: List[Dict[str, str]]) -> Tuple[str, Dict]:
@@ -257,7 +313,7 @@ Câu hỏi: {query}
             logs["response"] = response
             return response, logs
 
-        if not self.classifier.is_proptit_related(query):
+        if not self.classifier.is_proptit_related(query, chat_history):
             logs["classification"] = "General Conversation"
             response = self.get_general_response(query, chat_history)
             logs["response"] = response
@@ -285,17 +341,47 @@ Câu hỏi: {query}
 
         # 2. Rerank
         k_final = 7
-        reranked_results, reranked_ids = self.reranker.rerank(query, vector_results, top_k=k_final)
+        reranked_results, reranked_ids = self.reranker.rerank(query, vector_results, top_k=k_final, chat_history=chat_history)
         logs["rerank"] = {"reranked_ids": reranked_ids}
 
         # 3. Generate Response
         context = "\n\n".join([f"Trích đoạn từ tài liệu {reranked_ids[i]}:\n{doc.get('information', '')}" for i, doc in enumerate(reranked_results)])
         
-        final_prompt = self.rag_prompt_template.format(context=context, query=query)
+        # Xây dựng ngữ cảnh chat cho generation
+        chat_context_str = ""
+        if chat_history:
+            chat_context_str = "LỊCH SỬ HỘI THOẠI:\n"
+            for turn in chat_history[-2:]:  # Lấy 2 lượt gần nhất
+                chat_context_str += f"Người dùng: {turn['user']}\nTrợ lý: {turn['assistant']}\n"
+            chat_context_str += "\n"
+            print(f"📝 [GENERATION] Chat context được tạo:")
+            print(f"{chat_context_str}")
+        else:
+            print(f"📝 [GENERATION] Không có chat history")
+        
+        final_prompt = self.rag_prompt_template.format(
+            chat_context=chat_context_str, 
+            context=context, 
+            query=query
+        )
         
         messages = self._build_chat_history(final_prompt, chat_history)
         
+        print(f"\n{'='*60}")
+        print(f"📝 [GENERATION] PROMPT GỬI ĐẾN LLM:")
+        print(f"{'='*60}")
+        print(f"System: {messages[0]['content']}")
+        print(f"\nCác messages từ lịch sử:")
+        for i, msg in enumerate(messages[1:-1]):
+            print(f"Message {i+1} ({msg['role']}): {msg['content'][:100]}...")
+        print(f"\nUser final: {messages[-1]['content']}")
+        print(f"{'='*60}\n")
+        
         response = self.nim_client.chat(messages)
+        
+        print(f"📝 [GENERATION] RESPONSE TỪ LLM:")
+        print(f"Final response: {response}")
+        print(f"{'='*60}\n")
         logs["response"] = response
         logs["final_context"] = context
 
