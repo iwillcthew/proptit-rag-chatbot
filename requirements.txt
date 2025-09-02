@@ -1,0 +1,19 @@
+# requirements.txt
+# Dùng cho Hugging Face Spaces
+
+streamlit
+numpy
+pandas
+openai
+python-dotenv
+pymongo
+sentence-transformers
+torch
+torchaudio
+torchvision
+accelerate
+bitsandbytes
+transformers
+scikit-learn
+nltk
+rouge-score
