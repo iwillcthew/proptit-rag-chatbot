@@ -1,3 +1,16 @@
+---
+title: Proptit Rag Chatbot
+emoji: 🚀
+colorFrom: red
+colorTo: red
+sdk: docker
+app_port: 8501
+tags:
+- streamlit
+pinned: true
+short_description: Streamlit template space
+license: mit
+---
 # Hệ thống RAG cho Chatbot CLB Lập trình PTIT (PROPTIT)
 
 Tài liệu này mô tả chi tiết kiến trúc và các thành phần của hệ thống Retrieval-Augmented Generation (RAG) được xây dựng để trả lời các câu hỏi liên quan đến CLB Lập trình PTIT.
@@ -27,9 +40,6 @@ Tài liệu này mô tả chi tiết kiến trúc và các thành phần của h
 
 Hệ thống RAG được thiết kế theo một kiến trúc module, bao gồm các giai đoạn chính: **Data Augmentation**, **Indexing**, **Retrieval**, **Reranking**, và **Generation**. Mục tiêu là cung cấp câu trả lời chính xác, phù hợp và dựa trên nguồn kiến thức tin cậy về CLB PROPTIT.
 
-![RAG Pipeline Architecture](images/1.png)
-*Sơ đồ tổng quan kiến trúc hệ thống RAG cho CLB PROPTIT*
-
 Sơ đồ luồng xử lý một câu hỏi của người dùng:
 1.  **Query Input**: Người dùng nhập câu hỏi.
 2.  **Retrieval Stage**:
@@ -44,9 +54,6 @@ Sơ đồ luồng xử lý một câu hỏi của người dùng:
 ## 2. Data Pipeline - Tăng cường và Chuẩn bị dữ liệu
 
 Chất lượng của hệ thống RAG phụ thuộc rất lớn vào chất lượng dữ liệu huấn luyện. Để giải quyết vấn đề thiếu hụt dữ liệu và tăng cường hiệu suất cho các model Embedding và Reranker, một pipeline tăng cường dữ liệu (Data Augmentation) bằng LLM đã được xây dựng.
-
-![Data Pipeline](images/2.png)
-*Sơ đồ quy trình tăng cường và chuẩn bị dữ liệu*
 
 **Nguồn dữ liệu gốc:**
 *   `CLB_PROPTIT.csv`: Chứa các văn bản gốc về thông tin của CLB.
@@ -80,9 +87,6 @@ Giai đoạn này chuyển đổi các tài liệu văn bản thành các vector
 ## 4. Retrieval & Reranking Pipeline - Truy xuất và Sắp xếp lại
 
 Đây là trái tim của hệ thống RAG, chịu trách nhiệm tìm ra những thông tin liên quan nhất từ kho kiến thức.
-
-![Retrieval & Reranking Pipeline](images/3.png)
-*Sơ đồ quy trình truy xuất và sắp xếp lại tài liệu*
 
 ### 4.1. Vector Search
 

@@ -9,5 +9,5 @@ font="sans serif"
 
 [server]
 headless = true
-port = 7860
+port = 8501
 enableCORS = false
